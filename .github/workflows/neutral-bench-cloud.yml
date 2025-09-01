@@ -120,23 +120,49 @@ jobs:
 
       - name: Generate dataset (100k docs)
         working-directory: agg-bench
-        run: node gen_dataset.mjs --out data_100k.ndjson --count 100000 --days 7
+        run: |
+          node gen_dataset.mjs \
+            --out data_100k.ndjson \
+            --count 100000 \
+            --days 7
 
       - name: Load Mongo (Atlas)
         working-directory: agg-bench
-        run: node load_mongo.mjs "${MONGO_URI}" --file data_100k.ndjson --db bench --coll events
+        run: |
+          node load_mongo.mjs "${MONGO_URI}" \
+            --file data_100k.ndjson \
+            --db bench \
+            --coll events
 
       - name: Load Redis Cloud (JSON + RediSearch)
         working-directory: agg-bench
-        run: node load_redis.mjs --file data_100k.ndjson --prefix ev: --host "${REDIS_HOST}" --port "${REDIS_PORT}" --password "${REDIS_PASSWORD}"
+        run: |
+          node load_redis.mjs \
+            --file data_100k.ndjson \
+            --prefix "ev:" \
+            --host "${REDIS_HOST}" \
+            --port "${REDIS_PORT}" \
+            --password "${REDIS_PASSWORD}"
 
       - name: Bench Mongo Aggregations
         working-directory: agg-bench
-        run: node mongo-agg-bench.mjs "${MONGO_URI}" --db bench --coll events --iters "${ITERS}" --workers "${WORKERS}" > mongo_agg.csv
+        run: |
+          node mongo-agg-bench.mjs "${MONGO_URI}" \
+            --db bench \
+            --coll events \
+            --iters "${ITERS}" \
+            --workers "${WORKERS}" > mongo_agg.csv
 
       - name: Bench Redis Aggregations
         working-directory: agg-bench
-        run: node redis-agg-bench.mjs --host "${REDIS_HOST}" --port "${REDIS_PORT}" --password "${REDIS_PASSWORD}" --index idx:events --iters "${ITERS}" --workers "${WORKERS}" > redis_agg.csv
+        run: |
+          node redis-agg-bench.mjs \
+            --host "${REDIS_HOST}" \
+            --port "${REDIS_PORT}" \
+            --password "${REDIS_PASSWORD}" \
+            --index "idx:events" \
+            --iters "${ITERS}" \
+            --workers "${WORKERS}" > redis_agg.csv
 
       - name: Upload Aggregation CSV (Mongo)
         uses: actions/upload-artifact@v4

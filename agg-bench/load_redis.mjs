@@ -1,0 +1,7 @@
+import fs from 'fs'; import readline from 'readline'; import { createClient } from 'redis';
+const args=Object.fromEntries(process.argv.slice(2).map(s=>s.startsWith('--')?s.replace(/^--/,'').split('='):[s,true]));
+const file=args.file||'data.ndjson', prefix=args.prefix||'ev:', host=args.host, port=args.port, password=args.password;
+if(!host||!port||!password){ console.error('Usage: node load_redis.mjs --file data.ndjson --prefix ev: --host <HOST> --port <PORT> --password <PASSWORD>'); process.exit(1); }
+const url=`rediss://:${password}@${host}:${port}`; const client=createClient({url}); client.on('error',e=>console.error('Redis error',e)); await client.connect();
+const rl=readline.createInterface({input:fs.createReadStream(file)}); let i=0; for await (const line of rl){ if(!line.trim()) continue; await client.json.set(prefix+(++i),'$',JSON.parse(line)); if(i%1000===0) console.log('loaded',i); }
+const index=args.index||'idx:events'; try{ await client.ft.dropIndex(index); }catch{}; await client.ft.create(index,{'$.event':{type:'TAG',AS:'event'},'$.region':{type:'TAG',AS:'region'},'$.amount':{type:'NUMERIC',AS:'amount'},'$.ts':{type:'NUMERIC',AS:'ts'},'$.tags[*]':{type:'TAG',AS:'tags'},'$.items[*].sku':{type:'TAG',AS:'sku'}},{ON:'JSON',PREFIX:prefix,STOPWORDS:0}); console.log('Index created'); await client.quit();

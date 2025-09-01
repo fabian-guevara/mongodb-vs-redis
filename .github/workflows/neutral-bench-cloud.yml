@@ -1,0 +1,128 @@
+
+name: Neutral Bench - Cloud (Atlas vs Redis Cloud)
+
+on:
+  workflow_dispatch:
+    inputs:
+      recordcount_small:
+        description: 'Recordcount cache scenario'
+        default: '100000'
+        required: true
+      recordcount_large:
+        description: 'Recordcount persistent scenario'
+        default: '1000000'
+        required: true
+      target_ops:
+        description: 'Target ops/s (YCSB)'
+        default: '20000'
+        required: true
+      iters:
+        description: 'Aggregation bench iterations'
+        default: '5'
+        required: true
+      workers:
+        description: 'Aggregation bench workers'
+        default: '8'
+        required: true
+
+jobs:
+  ycsb:
+    runs-on: ubuntu-latest
+    env:
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      REDIS_HOST: ${{ secrets.REDIS_HOST }}
+      REDIS_PORT: ${{ secrets.REDIS_PORT }}
+      REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+      RC_SMALL: ${{ inputs.recordcount_small }}
+      RC_LARGE: ${{ inputs.recordcount_large }}
+      TARGET: ${{ inputs.target_ops }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java (YCSB)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download YCSB
+        run: |
+          curl -sL https://github.com/brianfrankcooper/YCSB/releases/download/0.17.0/ycsb-0.17.0.tar.gz -o ycsb.tgz
+          tar xzf ycsb.tgz
+          mv ycsb-0.17.0 ycsb
+          cp ycsb-comparo/*.sh ycsb/
+          chmod +x ycsb/*.sh
+
+      - name: Mongo YCSB (small read-only)
+        working-directory: ycsb
+        run: |
+          ./ycsb-mongo.sh load C $RC_SMALL 64 "$MONGO_URI"
+          ./ycsb-mongo.sh run  C 120       128 "$MONGO_URI" $TARGET
+
+      - name: Redis Cloud YCSB (small read-only, TLS)
+        working-directory: ycsb
+        run: |
+          ./ycsb-redis.sh load C $RC_SMALL 64 -p redis.host=${REDIS_HOST} -p redis.port=${REDIS_PORT} -p redis.password=${REDIS_PASSWORD} -p redis.ssl=true
+          ./ycsb-redis.sh run  C 120       128 -p redis.host=${REDIS_HOST} -p redis.port=${REDIS_PORT} -p redis.password=${REDIS_PASSWORD} -p redis.ssl=true -p target=$TARGET
+
+      - name: Upload YCSB raw outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ycsb-raw-outputs
+          path: ycsb/runs/*.out
+
+  agg:
+    runs-on: ubuntu-latest
+    needs: ycsb
+    env:
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      REDIS_HOST: ${{ secrets.REDIS_HOST }}
+      REDIS_PORT: ${{ secrets.REDIS_PORT }}
+      REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+      ITERS: ${{ inputs.iters }}
+      WORKERS: ${{ inputs.workers }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        working-directory: agg-bench
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install mongodb redis --silent
+
+      - name: Generate dataset (100k docs)
+        working-directory: agg-bench
+        run: node gen_dataset.mjs --out data_100k.ndjson --count 100000 --days 7
+
+      - name: Load Mongo (Atlas)
+        working-directory: agg-bench
+        run: node load_mongo.mjs "$MONGO_URI" --file data_100k.ndjson --db bench --coll events
+
+      - name: Load Redis Cloud (JSON + RediSearch)
+        working-directory: agg-bench
+        run: node load_redis.mjs --file data_100k.ndjson --prefix ev: --host ${REDIS_HOST} --port ${REDIS_PORT} --password ${REDIS_PASSWORD}
+
+      - name: Bench Mongo Aggregations
+        working-directory: agg-bench
+        run: node mongo-agg-bench.mjs "$MONGO_URI" --db bench --coll events --iters $ITERS --workers $WORKERS > mongo_agg.csv
+
+      - name: Bench Redis Aggregations
+        working-directory: agg-bench
+        run: node redis-agg-bench.mjs --host ${REDIS_HOST} --port ${REDIS_PORT} --password ${REDIS_PASSWORD} --index idx:events --iters $ITERS --workers $WORKERS > redis_agg.csv
+
+      - name: Upload Aggregation CSVs
+        uses: actions/upload-artifact@v4
+        with:
+          name: agg-results
+          path: |
+            agg-bench/mongo_agg.csv
+            agg-bench/redis_agg.csv

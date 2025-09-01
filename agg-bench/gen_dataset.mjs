@@ -1,0 +1,8 @@
+import fs from 'fs';
+const args=Object.fromEntries(process.argv.slice(2).map(s=>s.startsWith('--')?s.replace(/^--/,'').split('='):[s,true]));
+const out=args.out||'data.ndjson', count=parseInt(args.count||'100000',10), days=parseInt(args.days||'7',10);
+const events=['view','add','buy','refund'], regions=['NA','EU','LATAM','APAC'], tagPool=['promo','vip','mobile','email','retarget','weekend','clearance'];
+const skus=Array.from({length:2000},(_,i)=>`SKU${(i+1).toString().padStart(5,'0')}`); const dayMs=86400000;
+function rc(a,b){ return a+Math.floor(Math.random()*(b-a+1)); } function ch(a){ return a[Math.floor(Math.random()*a.length)]; }
+function amt(e){ if(e==='buy') return +(Math.max(0,(Math.random()*200+5)).toFixed(2)); if(e==='refund') return +(-Math.max(0,(Math.random()*150)).toFixed(2)); return +(Math.max(0,(Math.random()*10)).toFixed(2)); }
+const fd=fs.openSync(out,'w'); for(let i=0;i<count;i++){ const ev=ch(events); const doc={userId:`u_${rc(1,Math.floor(count/10)+1000)}`,ts:new Date(Date.now()-rc(0,days)*dayMs-rc(0,86400)*1000),event:ev,region:ch(regions),amount:amt(ev),tags:Array.from({length:rc(1,3)},()=>ch(tagPool)),items:Array.from({length:rc(0,4)},()=>({sku:ch(skus),qty:rc(1,3),price:+(Math.random()*50+1).toFixed(2)}))}; fs.writeSync(fd, JSON.stringify(doc)+'\n'); if((i+1)%100000===0) console.error('generated',i+1); } fs.closeSync(fd); console.log(`Wrote ${count} docs to ${out}`);

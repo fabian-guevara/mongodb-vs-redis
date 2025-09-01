@@ -1,0 +1,15 @@
+import { MongoClient } from 'mongodb';
+const args=Object.fromEntries(process.argv.slice(2).map(s=>s.startsWith('--')?s.replace(/^--/,'').split('='):[s,true])); const uri=process.argv[2];
+if(!uri){ console.error('Usage: node mongo-agg-bench.mjs <MongoURI> --db bench --coll events --iters 10 --workers 16'); process.exit(1); }
+const dbName=args.db||'bench', collName=args.coll||'events', iters=parseInt(args.iters||'10',10), workers=parseInt(args.workers||'8',10);
+function stats(ms){ const s=[...ms].sort((a,b)=>a-b); const avg=s.reduce((a,b)=>a+b,0)/s.length; const p=q=>s[Math.min(s.length-1,Math.floor(q*(s.length-1)))]; const mean=avg; const variance=s.reduce((acc,v)=>acc+(v-mean)*(v-mean),0)/s.length; const std=Math.sqrt(variance); return {p50:p(0.5),p95:p(0.95),p99:p(0.99),avg:mean,std}; }
+const client=new MongoClient(uri); await client.connect(); const coll=client.db(dbName).collection(collName);
+const now=new Date(); const from24h=new Date(now.getTime()-24*3600*1000); const from7d=new Date(now.getTime()-7*24*3600*1000);
+async function q1(){ const t=performance.now(); await coll.aggregate([{ $match:{ ts:{ $gte: from24h }}},{ $group:{ _id:'$event', c:{ $sum:1 }}},{ $sort:{ c:-1 }},{ $limit:5}],{allowDiskUse:true}).toArray(); return performance.now()-t; }
+async function q2(){ const t=performance.now(); await coll.aggregate([{ $match:{ ts:{ $gte: from7d }}},{ $group:{ _id:'$region', sum:{ $sum:'$amount' }, avg:{ $avg:'$amount' }}},{ $sort:{ sum:-1 }}],{allowDiskUse:true}).toArray(); return performance.now()-t; }
+async function q3(){ const t=performance.now(); await coll.aggregate([{ $unwind:{ path:'$items', preserveNullAndEmptyArrays:false }},{ $group:{ _id:'$items.sku', c:{ $sum:1 }}},{ $sort:{ c:-1 }},{ $limit:20}],{allowDiskUse:true}).toArray(); return performance.now()-t; }
+async function q4(){ const t=performance.now(); await coll.aggregate([{ $match:{ tags:'promo' }},{ $group:{ _id:'$event', c:{ $sum:1 }}},{ $sort:{ c:-1 }},{ $limit:5}],{allowDiskUse:true}).toArray(); return performance.now()-t; }
+async function q5(){ const t=performance.now(); await coll.aggregate([{ $match:{ ts:{ $gte: from24h }}},{ $group:{ _id:{ h:{ $dateTrunc:{ date:'$ts', unit:'hour' } }, e:'$event' }, c:{ $sum:1 }}},{ $sort:{ '_id.h':1, c:-1 }}],{allowDiskUse:true}).toArray(); return performance.now()-t; }
+const queries=[['q1_topN_event_last24h',q1],['q2_revenue_by_region',q2],['q3_unwind_items_count_by_sku',q3],['q4_tag_filter_topN',q4],['q5_hourly_rollup_by_event',q5]];
+console.log('engine,query_id,iters,workers,p50_ms,p95_ms,p99_ms,avg_ms,std_ms,total_ops');
+for (const [qid, fn] of queries){ const times=[]; for(let r=0;r<iters;r++){ const batch=Array.from({length:workers},()=>fn()); const res=await Promise.all(batch); times.push(...res); } const st=stats(times); console.log(['mongo',qid,iters,workers,st.p50.toFixed(2),st.p95.toFixed(2),st.p99.toFixed(2),st.avg.toFixed(2),st.std.toFixed(2),times.length].join(',')); } await client.close();

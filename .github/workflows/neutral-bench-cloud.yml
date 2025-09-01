@@ -1,5 +1,3 @@
-
-# Trigger manual + push
 name: Neutral Bench - Cloud (Atlas vs Redis Cloud)
 
 on:
@@ -26,6 +24,9 @@ on:
         default: '8'
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   ycsb:
     runs-on: ubuntu-latest
@@ -45,7 +46,7 @@ jobs:
       - name: Setup Java (YCSB)
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
 
       - name: Download YCSB
@@ -59,14 +60,23 @@ jobs:
       - name: Mongo YCSB (small read-only)
         working-directory: ycsb
         run: |
-          ./ycsb-mongo.sh load C $RC_SMALL 64 "$MONGO_URI"
-          ./ycsb-mongo.sh run  C 120       128 "$MONGO_URI" $TARGET
+          ./ycsb-mongo.sh load C "${RC_SMALL}" 64 "${MONGO_URI}"
+          ./ycsb-mongo.sh run  C 120 128 "${MONGO_URI}" "${TARGET}"
 
       - name: Redis Cloud YCSB (small read-only, TLS)
         working-directory: ycsb
         run: |
-          ./ycsb-redis.sh load C $RC_SMALL 64 -p redis.host=${REDIS_HOST} -p redis.port=${REDIS_PORT} -p redis.password=${REDIS_PASSWORD} -p redis.ssl=true
-          ./ycsb-redis.sh run  C 120       128 -p redis.host=${REDIS_HOST} -p redis.port=${REDIS_PORT} -p redis.password=${REDIS_PASSWORD} -p redis.ssl=true -p target=$TARGET
+          ./ycsb-redis.sh load C "${RC_SMALL}" 64 \
+            -p redis.host="${REDIS_HOST}" \
+            -p redis.port="${REDIS_PORT}" \
+            -p redis.password="${REDIS_PASSWORD}" \
+            -p redis.ssl=true
+          ./ycsb-redis.sh run  C 120 128 \
+            -p redis.host="${REDIS_HOST}" \
+            -p redis.port="${REDIS_PORT}" \
+            -p redis.password="${REDIS_PASSWORD}" \
+            -p redis.ssl=true \
+            -p target="${TARGET}"
 
       - name: Upload YCSB raw outputs
         uses: actions/upload-artifact@v4
@@ -97,8 +107,8 @@ jobs:
       - name: Install deps
         working-directory: agg-bench
         run: |
-          npm init -y >/dev/null 2>&1
-          npm install mongodb redis --silent
+          npm init -y
+          npm install mongodb redis
 
       - name: Generate dataset (100k docs)
         working-directory: agg-bench
@@ -106,19 +116,23 @@ jobs:
 
       - name: Load Mongo (Atlas)
         working-directory: agg-bench
-        run: node load_mongo.mjs "$MONGO_URI" --file data_100k.ndjson --db bench --coll events
+        run: node load_mongo.mjs "${MONGO_URI}" --file data_100k.ndjson --db bench --coll events
 
       - name: Load Redis Cloud (JSON + RediSearch)
         working-directory: agg-bench
-        run: node load_redis.mjs --file data_100k.ndjson --prefix ev: --host ${REDIS_HOST} --port ${REDIS_PORT} --password ${REDIS_PASSWORD}
+        run: node load_redis.mjs --file data_100k.ndjson --prefix ev: \
+          --host "${REDIS_HOST}" --port "${REDIS_PORT}" --password "${REDIS_PASSWORD}"
 
       - name: Bench Mongo Aggregations
         working-directory: agg-bench
-        run: node mongo-agg-bench.mjs "$MONGO_URI" --db bench --coll events --iters $ITERS --workers $WORKERS > mongo_agg.csv
+        run: node mongo-agg-bench.mjs "${MONGO_URI}" --db bench --coll events \
+          --iters "${ITERS}" --workers "${WORKERS}" > mongo_agg.csv
 
       - name: Bench Redis Aggregations
         working-directory: agg-bench
-        run: node redis-agg-bench.mjs --host ${REDIS_HOST} --port ${REDIS_PORT} --password ${REDIS_PASSWORD} --index idx:events --iters $ITERS --workers $WORKERS > redis_agg.csv
+        run: node redis-agg-bench.mjs --host "${REDIS_HOST}" --port "${REDIS_PORT}" \
+          --password "${REDIS_PASSWORD}" --index idx:events \
+          --iters "${ITERS}" --workers "${WORKERS}" > redis_agg.csv
 
       - name: Upload Aggregation CSVs
         uses: actions/upload-artifact@v4

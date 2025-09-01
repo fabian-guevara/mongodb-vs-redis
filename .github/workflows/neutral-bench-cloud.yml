@@ -78,19 +78,15 @@ jobs:
             -p redis.ssl=true \
             -p target="${TARGET}"
 
-      - name: Upload YCSB raw outputs (Mongo)
+      - name: Upload YCSB raw outputs (Mongo+Redis)
         uses: actions/upload-artifact@v4
         with:
           name: ycsb-raw-outputs
-          path: ycsb/runs/*mongo*.out
-          if-no-files-found: ignore
-
-      - name: Upload YCSB raw outputs (Redis)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ycsb-raw-outputs
-          path: ycsb/runs/*redis*.out
-          if-no-files-found: ignore
+          path: |
+            ycsb/runs/*mongo*.out
+            ycsb/runs/*redis*.out
+          if-no-files-found: warn
+          retention-days: 7
 
   agg:
     runs-on: ubuntu-latest
@@ -164,16 +160,12 @@ jobs:
             --iters "${ITERS}" \
             --workers "${WORKERS}" > redis_agg.csv
 
-      - name: Upload Aggregation CSV (Mongo)
+      - name: Upload Aggregation CSVs
         uses: actions/upload-artifact@v4
         with:
           name: agg-results
-          path: agg-bench/mongo_agg.csv
+          path: |
+            agg-bench/mongo_agg.csv
+            agg-bench/redis_agg.csv
           if-no-files-found: error
-
-      - name: Upload Aggregation CSV (Redis)
-        uses: actions/upload-artifact@v4
-        with:
-          name: agg-results
-          path: agg-bench/redis_agg.csv
-          if-no-files-found: error
+          retention-days: 7

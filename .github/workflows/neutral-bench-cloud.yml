@@ -4,23 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       recordcount_small:
-        description: 'Recordcount cache scenario'
+        description: Recordcount cache scenario
         default: '100000'
         required: true
       recordcount_large:
-        description: 'Recordcount persistent scenario'
+        description: Recordcount persistent scenario
         default: '1000000'
         required: true
       target_ops:
-        description: 'Target ops/s (YCSB)'
+        description: Target ops/s (YCSB)
         default: '20000'
         required: true
       iters:
-        description: 'Aggregation bench iterations'
+        description: Aggregation bench iterations
         default: '5'
         required: true
       workers:
-        description: 'Aggregation bench workers'
+        description: Aggregation bench workers
         default: '8'
         required: true
 
@@ -46,7 +46,7 @@ jobs:
       - name: Setup Java (YCSB)
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
       - name: Download YCSB
@@ -78,11 +78,19 @@ jobs:
             -p redis.ssl=true \
             -p target="${TARGET}"
 
-      - name: Upload YCSB raw outputs
+      - name: Upload YCSB raw outputs (Mongo)
         uses: actions/upload-artifact@v4
         with:
           name: ycsb-raw-outputs
-          path: ycsb/runs/*.out
+          path: ycsb/runs/*mongo*.out
+          if-no-files-found: ignore
+
+      - name: Upload YCSB raw outputs (Redis)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ycsb-raw-outputs
+          path: ycsb/runs/*redis*.out
+          if-no-files-found: ignore
 
   agg:
     runs-on: ubuntu-latest
@@ -120,24 +128,26 @@ jobs:
 
       - name: Load Redis Cloud (JSON + RediSearch)
         working-directory: agg-bench
-        run: node load_redis.mjs --file data_100k.ndjson --prefix ev: \
-          --host "${REDIS_HOST}" --port "${REDIS_PORT}" --password "${REDIS_PASSWORD}"
+        run: node load_redis.mjs --file data_100k.ndjson --prefix ev: --host "${REDIS_HOST}" --port "${REDIS_PORT}" --password "${REDIS_PASSWORD}"
 
       - name: Bench Mongo Aggregations
         working-directory: agg-bench
-        run: node mongo-agg-bench.mjs "${MONGO_URI}" --db bench --coll events \
-          --iters "${ITERS}" --workers "${WORKERS}" > mongo_agg.csv
+        run: node mongo-agg-bench.mjs "${MONGO_URI}" --db bench --coll events --iters "${ITERS}" --workers "${WORKERS}" > mongo_agg.csv
 
       - name: Bench Redis Aggregations
         working-directory: agg-bench
-        run: node redis-agg-bench.mjs --host "${REDIS_HOST}" --port "${REDIS_PORT}" \
-          --password "${REDIS_PASSWORD}" --index idx:events \
-          --iters "${ITERS}" --workers "${WORKERS}" > redis_agg.csv
+        run: node redis-agg-bench.mjs --host "${REDIS_HOST}" --port "${REDIS_PORT}" --password "${REDIS_PASSWORD}" --index idx:events --iters "${ITERS}" --workers "${WORKERS}" > redis_agg.csv
 
-      - name: Upload Aggregation CSVs
+      - name: Upload Aggregation CSV (Mongo)
         uses: actions/upload-artifact@v4
         with:
           name: agg-results
-          path: |
-            agg-bench/mongo_agg.csv
-            agg-bench/redis_agg.csv
+          path: agg-bench/mongo_agg.csv
+          if-no-files-found: error
+
+      - name: Upload Aggregation CSV (Redis)
+        uses: actions/upload-artifact@v4
+        with:
+          name: agg-results
+          path: agg-bench/redis_agg.csv
+          if-no-files-found: error
